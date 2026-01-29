@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bufio"
 	"net"
 	"testing"
 	"time"
@@ -73,8 +74,7 @@ func TestPongResponse(t *testing.T) {
 	}
 }
 
-
-// - 응답 후 서버가 연결을 종료하는지 검증 (Read()가 io.EOF를 반환하면 연결이 종료된 것)
+// 응답 후 서버가 연결을 종료하는지 검증 (Read()가 io.EOF를 반환하면 연결이 종료된 것)
 func TestConnectionClose(t *testing.T) {
 	// given: 서버 생성 및 시작
 	server := New(":6379")
@@ -101,5 +101,33 @@ func TestConnectionClose(t *testing.T) {
 	// EOF 또는 읽은 바이트가 0이면 연결이 종료된 것임
 	if err == nil && n > 0 {
 		t.Fatalf("서버가 연결을 종료하지 않음. 추가로 읽은 데이터: %s", string(buf[:n]))
+	}
+}
+
+// 클라이언트가 PING 명령어 전송 후 서버 PONG 응답하는지 검증
+func TestReadPingCommand(t *testing.T) {
+	// given: 서버 시작
+	server := New(":6379")
+	go server.Start()
+	time.Sleep(time.Second)
+
+	// when: 클라이언트가 연결 후 PING 명령어 전송하고 응답 수신
+	conn, err := net.Dial("tcp", "localhost:6379")
+	if err != nil {
+		t.Fatal("연결 실패")
+	}
+	defer conn.Close()
+
+	conn.Write([]byte("PING\r\n"))
+	reader := bufio.NewReader(conn)
+	read,err := reader.ReadString('\n')
+	
+	if err != nil {
+		t.Fatal("응답 읽기 실패")
+	}
+
+	// then: 응답값이 일치한지 검증
+	if read != "+PONG\r\n" {
+		t.Fatalf("잘못 된 응답 값: %s", read)
 	}
 }
