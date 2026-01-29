@@ -159,3 +159,43 @@ func TestReadEchoCommand(t *testing.T) {
 		t.Fatalf("잘못 된 응답 값: %s", read)
 	}
 }
+
+// 여러 명령어를 수신 후 모든 명령어에 대하여 정상적으로 응답하는지 검증
+func TestMultipleCommands(t *testing.T) {
+	// given: 서버 시작
+	server := New(":6379")
+	go server.Start()
+	time.Sleep(time.Second)
+
+	// when: 클라이언트가 연결 후 여러 명령어를 순차적으로 전송
+	conn, err := net.Dial("tcp", "localhost:6379")
+	if err != nil {
+		t.Fatal("연결 실패")
+	}
+	defer conn.Close()
+
+	// 첫 번째 명령어 PING
+	conn.Write([]byte("PING\r\n"))
+	reader := bufio.NewReader(conn)
+	read, _ := reader.ReadString('\n')
+
+	if read != "+PONG\r\n" {
+		t.Fatalf("잘못 된 응답 값: %s", read)
+	}
+
+	// 두 번째 명령어 ECHO HELLO
+	conn.Write([]byte("ECHO HELLO\r\n"))
+	read2, _ := reader.ReadString('\n')
+
+	if read2 != "+HELLO\r\n" {
+		t.Fatalf("잘못 된 응답 값: %s", read2)
+	}
+
+	// 세 번째 명령어 PING
+	conn.Write([]byte("PING\r\n"))
+	read3, _ := reader.ReadString('\n')
+
+	if read3 != "+PONG\r\n" {
+		t.Fatalf("잘못 된 응답 값: %s", read3)
+	}
+}
