@@ -120,14 +120,42 @@ func TestReadPingCommand(t *testing.T) {
 
 	conn.Write([]byte("PING\r\n"))
 	reader := bufio.NewReader(conn)
-	read,err := reader.ReadString('\n')
-	
+	read, err := reader.ReadString('\n')
+
 	if err != nil {
 		t.Fatal("응답 읽기 실패")
 	}
 
 	// then: 응답값이 일치한지 검증
 	if read != "+PONG\r\n" {
+		t.Fatalf("잘못 된 응답 값: %s", read)
+	}
+}
+
+// 클라이언트가 "ECHO ..." 명령어 전송 후 서버가 정상적으로 응답하는지 검증
+func TestReadEchoCommand(t *testing.T) {
+	// given: 서버 시작
+	server := New(":6379")
+	go server.Start()
+	time.Sleep(time.Second)
+
+	// when: 클라이언트가 연결 후 echo 명령어 전송하고 응답 수신
+	conn, err := net.Dial("tcp", "localhost:6379")
+	if err != nil {
+		t.Fatal("연결 실패")
+	}
+	defer conn.Close()
+
+	conn.Write([]byte("ECHO HELLO\r\n"))
+	reader := bufio.NewReader(conn)
+	read, err := reader.ReadString('\n')
+
+	if err != nil {
+		t.Fatal("응답 읽기 실패")
+	}
+
+	// then: 응답값이 일치한지 검증
+	if read != "+HELLO\r\n" {
 		t.Fatalf("잘못 된 응답 값: %s", read)
 	}
 }
