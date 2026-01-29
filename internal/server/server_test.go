@@ -46,64 +46,6 @@ func TestServerListensOnPort(t *testing.T) {
 	defer conn.Close()
 }
 
-// 연결 시 "+PONG\r\n"을 응답하여야 한다.
-func TestPongResponse(t *testing.T) {
-	// given: 서버 생성 및 시작
-	server := New(":6379")
-	go server.Start()
-	time.Sleep(time.Second)
-
-	// when: 단일 클라이언트 연결 및 응답 읽기
-	conn, err := net.Dial("tcp", "localhost:6379")
-	if err != nil {
-		t.Fatal("연결 실패")
-	}
-	defer conn.Close()
-
-	buf := make([]byte, 50)
-	n, err := conn.Read(buf)
-	if err != nil {
-		t.Fatal("읽기 실패")
-	}
-	// then: 응답값과 기댓값 비교
-	received := string(buf[:n])
-	expected := "+PONG\r\n"
-
-	if received != expected {
-		t.Fatalf("actual: %s, expected: %s", received, expected)
-	}
-}
-
-// 응답 후 서버가 연결을 종료하는지 검증 (Read()가 io.EOF를 반환하면 연결이 종료된 것)
-func TestConnectionClose(t *testing.T) {
-	// given: 서버 생성 및 시작
-	server := New(":6379")
-	go server.Start()
-	time.Sleep(time.Second)
-
-	// when: 연결 후 응답 읽기
-	conn, err := net.Dial("tcp", "localhost:6379")
-	if err != nil {
-		t.Fatal("연결 실패")
-	}
-	defer conn.Close()
-
-	// 첫 번째 Read: PONG 응답 수신
-	buf := make([]byte, 50)
-	_, err = conn.Read(buf)
-	if err != nil {
-		t.Fatal("첫 번째 읽기 실패")
-	}
-
-	// then: 두 번째 Read 시도 -> 서버가 연결을 닫았다면 EOF 반환
-	n, err := conn.Read(buf)
-
-	// EOF 또는 읽은 바이트가 0이면 연결이 종료된 것임
-	if err == nil && n > 0 {
-		t.Fatalf("서버가 연결을 종료하지 않음. 추가로 읽은 데이터: %s", string(buf[:n]))
-	}
-}
-
 // 클라이언트가 PING 명령어 전송 후 서버 PONG 응답하는지 검증
 func TestReadPingCommand(t *testing.T) {
 	// given: 서버 시작
