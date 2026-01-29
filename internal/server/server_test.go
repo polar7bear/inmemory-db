@@ -232,3 +232,27 @@ func TestInvalidCommand(t *testing.T) {
 		t.Fatalf("잘못 된 응답 값: %s", read2)
 	}
 }
+
+// 서버가 클라이언트로부터 수신받은 명령어에 대해서 대소문자 구분없이 모두 잘 처리하는지 검증
+func TestCaseInsensitiveCommand(t *testing.T) {
+	// given: 서버 시작
+	server := New(":6379")
+	go server.Start()
+	time.Sleep(time.Second)
+
+	conn, err := net.Dial("tcp", "localhost:6379")
+	if err != nil {
+		t.Fatal("연결 실패")
+	}
+	defer conn.Close()
+
+	// when: 클라이언트가 대소문자 구분없이 명령어 전송
+	conn.Write([]byte("pInG\r\n"))
+	reader := bufio.NewReader(conn)
+	read, _ := reader.ReadString('\n')
+
+	// then: 응답 검증
+	if read != "+PONG\r\n" {
+		t.Fatalf("잘못 된 응답 값: %s", read)
+	}
+}
