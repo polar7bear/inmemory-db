@@ -161,7 +161,7 @@ func TestInvalidCommand(t *testing.T) {
 	read, _ := reader.ReadString('\n')
 
 	// then: 에러 응답 검증
-	if read != "-ERROR missing argument\r\n" {
+	if read != "-ERR missing argument\r\n" {
 		t.Fatalf("잘못 된 응답 값: %s", read)
 	}
 
@@ -170,7 +170,7 @@ func TestInvalidCommand(t *testing.T) {
 	read2, _ := reader.ReadString('\n')
 
 	// then: 에러 응답 검증
-	if read2 != "-ERROR unknown command\r\n" {
+	if read2 != "-ERR unknown command\r\n" {
 		t.Fatalf("잘못 된 응답 값: %s", read2)
 	}
 }

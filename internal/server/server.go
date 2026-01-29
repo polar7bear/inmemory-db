@@ -80,11 +80,11 @@ func (s *Server) handleConnection(conn net.Conn) {
 			if len(commandList) > 1 {
 				conn.Write([]byte("+" + commandList[1] + "\r\n"))
 			} else {
-				conn.Write([]byte("-ERROR missing argument\r\n"))
+				conn.Write([]byte("-ERR missing argument\r\n"))
 			}
 
 		default:
-			conn.Write([]byte("-ERROR unknown command\r\n"))
+			conn.Write([]byte("-ERR unknown command\r\n"))
 		}
 	}
 	// 응답 전송
