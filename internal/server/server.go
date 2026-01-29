@@ -1,8 +1,10 @@
 package server
 
 import (
+	"bufio"
 	"log"
 	"net"
+	"strings"
 )
 
 // TCP 서버
@@ -49,8 +51,44 @@ func (s *Server) handleConnection(conn net.Conn) {
 	// 연결 종료 예약
 	defer conn.Close()
 
-	// 응답 전송
-	conn.Write([]byte("+PONG\r\n"))
+	reader := bufio.NewReader(conn)
 
-	log.Printf("클라이언트가 성공적으로 연결되었습니다: %s", conn.RemoteAddr())
+	for {
+		read, err := reader.ReadString('\n')
+		// EOF면 클라이언트가 연결을 끊은 것이니 루프 탈출 필요
+		if err != nil {
+			return
+		}
+
+		// 접미사 제거
+		// 맥/리눅스 환경에서는 nc(netcat)에서 엔터를 치면 \n만 전송
+		// 윈도우 환경에서는 \r\n 전송 -> OS환경마다 다름.
+		// 이 때문에 그냥 TrimSpace() 사용. -> 앞뒤의 모든 공백문자 제거
+		// read = strings.TrimSuffix(read, "\r\n") -> 문제되는 코드
+		read = strings.TrimSpace(read)
+
+		// SplitN(타겟 문자열, 구분자, split할 부분문자열의 개수)
+		var commandList []string = strings.SplitN(read, " ", 2)
+		command := strings.ToUpper(commandList[0])
+
+		switch command {
+
+		case "PING":
+			conn.Write([]byte("+PONG\r\n"))
+
+		case "ECHO":
+			if len(commandList) > 1 {
+				conn.Write([]byte("+" + commandList[1] + "\r\n"))
+			} else {
+				conn.Write([]byte("-ERROR missing argument\r\n"))
+			}
+
+		default:
+			conn.Write([]byte("-ERROR unknown command\r\n"))
+		}
+	}
+	// 응답 전송
+	// conn.Write([]byte("+PONG\r\n"))
+
+	// log.Printf("클라이언트가 성공적으로 연결되었습니다: %s", conn.RemoteAddr())
 }
