@@ -199,3 +199,36 @@ func TestMultipleCommands(t *testing.T) {
 		t.Fatalf("잘못 된 응답 값: %s", read3)
 	}
 }
+
+// 클라이언트가 서버가 알 수 없는 명령어를 전송 후 서버가 에러를 정상적으로 응답하는지 검증
+func TestInvalidCommand(t *testing.T) {
+	// given: 서버 시작
+	server := New(":6379")
+	go server.Start()
+	time.Sleep(time.Second)
+
+	conn, err := net.Dial("tcp", "localhost:6379")
+	if err != nil {
+		t.Fatal("연결 실패")
+	}
+	defer conn.Close()
+
+	// when: 클라이언트가 ECHO 명령어를 보내는데 인자를 작성하지 않았을 때
+	conn.Write([]byte("ECHO\r\n"))
+	reader := bufio.NewReader(conn)
+	read, _ := reader.ReadString('\n')
+
+	// then: 에러 응답 검증
+	if read != "-ERROR missing argument\r\n" {
+		t.Fatalf("잘못 된 응답 값: %s", read)
+	}
+
+	// when: 클라이언트가 서버에서 알 수 없는 명령어를 보냈을 때
+	conn.Write([]byte("HELLO\r\n"))
+	read2, _ := reader.ReadString('\n')
+
+	// then: 에러 응답 검증
+	if read2 != "-ERROR unknown command\r\n" {
+		t.Fatalf("잘못 된 응답 값: %s", read2)
+	}
+}
