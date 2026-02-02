@@ -20,7 +20,7 @@ func TestServerCreation(t *testing.T) {
 
 	// then: nil이 아니어야 함
 	if server == nil {
-		t.Fatalf("actual: %s, expected: 서버인스턴스", server)
+		t.Fatalf("actual: %v, expected: 서버인스턴스", server)
 	}
 }
 
@@ -89,6 +89,78 @@ func TestRespEchoCommand(t *testing.T) {
 	response := line1 + line2
 
 	if response != "$5\r\nhello\r\n" {
+		t.Fatalf("응답: %s", response)
+	}
+}
+
+func TestSetCommand(t *testing.T) {
+	// given
+	input := "*3\r\n$3\r\nSET\r\n$4\r\nname\r\n$5\r\nredis\r\n" // 버퍼 바이트 크기 확인필요
+	server := New(":6379")
+	go server.Start()
+	time.Sleep(time.Second)
+
+	conn, _ := net.Dial("tcp", "localhost:6379")
+	defer conn.Close()
+
+	// when
+	conn.Write([]byte(input))
+
+	// then
+	reader := bufio.NewReader(conn)
+	response, _ := reader.ReadString('\n')
+
+	if response != "+OK\r\n" {
+		t.Fatalf("응답: %s", response)
+	}
+}
+
+func TestGetCommand(t *testing.T) {
+	// given
+	input := "*3\r\n$3\r\nSET\r\n$4\r\nname\r\n$5\r\nredis\r\n"
+	get := "*2\r\n$3\r\nGET\r\n$4\r\nname\r\n"
+	server := New(":6379")
+	go server.Start()
+	time.Sleep(time.Second)
+
+	conn, _ := net.Dial("tcp", "localhost:6379")
+	defer conn.Close()
+
+	// when
+	conn.Write([]byte(input))
+	conn.Write([]byte(get))
+
+	// then
+	reader := bufio.NewReader(conn)
+	reader.ReadString('\n')
+	response2, _ := reader.ReadString('\n')
+	response3, _ := reader.ReadString('\n')
+
+	getResponse := response2 + response3
+
+	if getResponse != "$5\r\nredis\r\n" {
+		t.Fatalf("응답: %s", getResponse)
+	}
+}
+
+func TestGetNonExistent(t *testing.T) {
+	// given
+	input := "*2\r\n$3\r\nGET\r\n$4\r\neman\r\n"
+	server := New(":6379")
+	go server.Start()
+	time.Sleep(time.Second)
+
+	conn, _ := net.Dial("tcp", "localhost:6379")
+	defer conn.Close()
+
+	// when
+	conn.Write([]byte(input))
+
+	// then
+	reader := bufio.NewReader(conn)
+	response, _ := reader.ReadString('\n')
+
+	if response != "$-1\r\n" {
 		t.Fatalf("응답: %s", response)
 	}
 }
