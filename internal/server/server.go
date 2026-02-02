@@ -3,6 +3,7 @@ package server
 import (
 	"bufio"
 	"inmemory-db/internal/protocol"
+	"inmemory-db/internal/storage"
 	"log"
 	"net"
 	"strings"
@@ -12,10 +13,14 @@ import (
 type Server struct {
 	listener net.Listener
 	addr     string
+	store    *storage.Store
 }
 
 func New(addr string) *Server {
-	return &Server{addr: addr}
+	return &Server{
+		addr:  addr,
+		store: storage.New(),
+	}
 }
 
 // Start는 서버를 시작하고 연결을 수신합니다.
@@ -62,7 +67,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 		if err != nil {
 			return
 		}
-		
+
 		command := strings.ToUpper(value.Array[0].Str)
 
 		switch command {
@@ -75,6 +80,22 @@ func (s *Server) handleConnection(conn net.Conn) {
 				writer.WriteBulkString(value.Array[1].Str)
 			} else {
 				writer.WriteError("missing argument")
+			}
+	
+		case "SET":
+			key := value.Array[1].Str
+			value := value.Array[2].Str
+			s.store.Set(key, value)
+
+			writer.WriteSimpleString("OK")
+
+		case "GET":
+			key := value.Array[1].Str
+			result, exist := s.store.Get(key)
+			if exist {
+				writer.WriteBulkString(result)
+			} else {
+				writer.WriteNull()
 			}
 
 		default:
