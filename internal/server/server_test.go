@@ -198,3 +198,50 @@ func TestCaseInsensitiveCommand(t *testing.T) {
 		t.Fatalf("잘못 된 응답 값: %s", read)
 	}
 }
+
+func TestRespPingCommand(t *testing.T) {
+	// given
+	server := New(":6379")
+	go server.Start()
+	time.Sleep(time.Second)
+
+	conn, _ := net.Dial("tcp", "localhost:6379")
+	defer conn.Close()
+
+	// when: RESP 형식으로 PING 명령어 전송
+	conn.Write([]byte("*1\r\n$4\r\nPING\r\n"))
+
+	// then
+	reader := bufio.NewReader(conn)
+	response, _ := reader.ReadString('\n')
+
+	if response != "+PONG\r\n" {
+		t.Fatalf("응답: %s", response)
+	}
+}
+
+func TestRespEchoCommand(t *testing.T) {
+	// given
+	server := New(":6379")
+	go server.Start()
+	time.Sleep(time.Second)
+
+	conn, _ := net.Dial("tcp", "localhost:6379")
+	defer conn.Close()
+
+	// when: RESP 형식으로 PING 명령어 전송
+	conn.Write([]byte("*2\r\n$4\r\nECHO\r\n$5\r\nhello\r\n"))
+
+	// then
+	reader := bufio.NewReader(conn)
+
+	// bul string은 두 줄로 응답됨 -> "$5\r\n" + "hello\r\n"
+	line1, _ := reader.ReadString('\n')
+	line2, _ := reader.ReadString('\n')
+
+	response := line1 + line2
+
+	if response != "$5\r\nhello\r\n" {
+		t.Fatalf("응답: %s", response)
+	}
+}
