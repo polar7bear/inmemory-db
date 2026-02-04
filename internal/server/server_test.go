@@ -3,6 +3,7 @@ package server
 import (
 	"bufio"
 	"net"
+	"sync"
 	"testing"
 	"time"
 )
@@ -95,7 +96,7 @@ func TestRespEchoCommand(t *testing.T) {
 
 func TestSetCommand(t *testing.T) {
 	// given
-	input := "*3\r\n$3\r\nSET\r\n$4\r\nname\r\n$5\r\nredis\r\n" // 버퍼 바이트 크기 확인필요
+	input := "*3\r\n$3\r\nSET\r\n$4\r\nname\r\n$8\r\n승기\r\n" // 버퍼 바이트 크기 확인필요
 	server := New(":6379")
 	go server.Start()
 	time.Sleep(time.Second)
@@ -163,4 +164,39 @@ func TestGetNonExistent(t *testing.T) {
 	if response != "$-1\r\n" {
 		t.Fatalf("응답: %s", response)
 	}
+}
+
+func TestConcurrentClients(t *testing.T) {
+	// given
+	input := "*1\r\n$4\r\nPING\r\n"
+	server := New(":6379")
+	go server.Start()
+	time.Sleep(time.Second)
+
+	// when: 여러 클라이언트가 동시에 접속
+	var wg sync.WaitGroup
+	clientCount := 10
+
+	for i := 0; i < clientCount; i++ {
+		wg.Add(1)
+
+		go func(id int) {
+			defer wg.Done()
+
+			conn, _ := net.Dial("tcp", "localhost:6379")
+			defer conn.Close()
+
+			conn.Write([]byte(input))
+
+			reader := bufio.NewReader(conn)
+			response, _ := reader.ReadString('\n')
+
+			// then: 모든 클라이언트가 PONG 응답
+			if response != "+PONG\r\n" {
+				t.Errorf("클라이언트 %d 응답 실패: %s", id, response)
+			}
+		}(i)
+	}
+
+	wg.Wait()
 }
