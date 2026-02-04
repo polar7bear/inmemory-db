@@ -46,7 +46,7 @@ func (s *Server) Start() error {
 			log.Print("연결 중 오류: ", err)
 			continue
 		} else {
-			s.handleConnection(conn)
+			go s.handleConnection(conn)
 		}
 	}
 
@@ -81,7 +81,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 			} else {
 				writer.WriteError("missing argument")
 			}
-	
+
 		case "SET":
 			key := value.Array[1].Str
 			value := value.Array[2].Str
