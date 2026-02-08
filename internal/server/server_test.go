@@ -96,7 +96,7 @@ func TestRespEchoCommand(t *testing.T) {
 
 func TestSetCommand(t *testing.T) {
 	// given
-	input := "*3\r\n$3\r\nSET\r\n$4\r\nname\r\n$8\r\n승기\r\n" // 버퍼 바이트 크기 확인필요
+	input := "*3\r\n$3\r\nSET\r\n$4\r\nname\r\n$6\r\n승기\r\n"
 	server := New(":6379")
 	go server.Start()
 	time.Sleep(time.Second)
