@@ -2,6 +2,7 @@ package server
 
 import (
 	"bufio"
+	"fmt"
 	"net"
 	"sync"
 	"testing"
@@ -199,4 +200,57 @@ func TestConcurrentClients(t *testing.T) {
 	}
 
 	wg.Wait()
+}
+
+func TestConcurrentSetGet(t *testing.T) {
+	// given
+	server := New(":6379")
+	go server.Start()
+	time.Sleep(time.Second)
+
+	var wg sync.WaitGroup
+
+	// when: 여러 클라이언트가 동시에 SET/GET
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+
+			conn, _ := net.Dial("tcp", "localhost:6379")
+			defer conn.Close()
+
+			key := fmt.Sprintf("key%d", id)
+			value := fmt.Sprintf("value%d", id)
+			keyLen := len(key)
+			valueLen := len(value)
+
+			// SET
+			setCmd := fmt.Sprintf("*3\r\n$3\r\nSET\r\n$%d\r\n%s\r\n$%d\r\n%s\r\n", keyLen, key, valueLen, value)
+			conn.Write([]byte(setCmd))
+
+			reader := bufio.NewReader(conn)
+			setResponse, _ := reader.ReadString('\n')
+
+			if setResponse != "+OK\r\n" {
+				t.Errorf("클라이언트 %d SET 실패: %s", id, setResponse)
+				return
+			}
+
+			// GET
+			getCmd := fmt.Sprintf("*2\r\n$3\r\nGET\r\n$%d\r\n%s\r\n", keyLen, key)
+			conn.Write([]byte(getCmd))
+
+			getResponse1, _ := reader.ReadString('\n')
+			getResponse2, _ := reader.ReadString('\n')
+			getResp := getResponse1 + getResponse2
+
+			expected := fmt.Sprintf("$%d\r\n%s\r\n", valueLen, value)
+			if getResp != expected {
+				t.Errorf("클라이언트 %d GET 실패: %s, expected: %s", id, getResp, expected)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	// then: -race로 실행 시 race가 감지되지 않아야 함
 }
