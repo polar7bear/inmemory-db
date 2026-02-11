@@ -6,6 +6,7 @@ import (
 	"inmemory-db/internal/storage"
 	"log"
 	"net"
+	"strconv"
 	"strings"
 )
 
@@ -96,6 +97,76 @@ func (s *Server) handleConnection(conn net.Conn) {
 				writer.WriteBulkString(result)
 			} else {
 				writer.WriteNull()
+			}
+
+		case "LPUSH":
+			if len(value.Array) < 3 {
+				writer.WriteError("missing argument")
+			} else {
+				values := make([]string, 0, len(value.Array)-2)
+				for _, v := range value.Array[2:] {
+					values = append(values, v.Str)
+				}
+				length, err := s.store.LPush(value.Array[1].Str, values...)
+				if err != nil {
+					writer.WriteError(err.Error())
+				} else {
+					writer.WriteInteger(length)
+				}
+			}
+
+		case "RPUSH":
+			if len(value.Array) < 3 {
+				writer.WriteError("missing argument")
+			} else {
+				values := make([]string, 0, len(value.Array)-2)
+				for _, v := range value.Array[2:] {
+					values = append(values, v.Str)
+				}
+				length, err := s.store.RPush(value.Array[1].Str, values...)
+				if err != nil {
+					writer.WriteError(err.Error())
+				} else {
+					writer.WriteInteger(length)
+				}
+			}
+
+		case "LPOP":
+			value, result, err := s.store.LPop(value.Array[1].Str)
+			if err != nil {
+				writer.WriteError(err.Error())
+			} else {
+				if !result {
+					writer.WriteNull()
+				} else {
+					writer.WriteBulkString(value)
+				}
+			}
+
+		case "RPOP":
+			value, result, err := s.store.RPop(value.Array[1].Str)
+			if err != nil {
+				writer.WriteError(err.Error())
+			} else {
+				if !result {
+					writer.WriteNull()
+				} else {
+					writer.WriteBulkString(value)
+				}
+			}
+
+		case "LRANGE":
+			if len(value.Array) < 4 {
+				writer.WriteError("missing argument")
+			} else {
+				start, _ := strconv.Atoi(value.Array[2].Str)
+				stop, _ := strconv.Atoi(value.Array[3].Str)
+				result, err := s.store.LRange(value.Array[1].Str, start, stop)
+				if err != nil {
+					writer.WriteError(err.Error())
+				} else {
+					writer.WriteArray(result)
+				}
 			}
 
 		default:
