@@ -59,3 +59,46 @@ func TestWriteNull(t *testing.T) {
 		t.Fatalf("문자열이 다릅니다: %s", buf.String())
 	}
 }
+
+func TestWriteInteger(t *testing.T) {
+	// given
+	var buf bytes.Buffer
+	writer := NewWriter(&buf)
+
+	// when
+	writer.WriteInteger(15)
+
+	// then
+	if buf.String() != ":15\r\n" {
+		t.Fatalf("문자열이 다릅니다: %s", buf.String())
+	}
+}
+
+func TestWriteArray(t *testing.T) {
+	// given
+	var buf bytes.Buffer
+	writer := NewWriter(&buf)
+
+	// when
+	writer.WriteArray([]string{"hello", "world"})
+
+	// then
+	expected := "*2\r\n$5\r\nhello\r\n$5\r\nworld\r\n"
+	if buf.String() != expected {
+		t.Fatalf("문자열이 다릅니다.\nactual:   %q\nexpected: %q", buf.String(), expected)
+	}
+}
+
+func TestWriteArray_Empty(t *testing.T) {
+	// given
+	var buf bytes.Buffer
+	writer := NewWriter(&buf)
+
+	// when
+	writer.WriteArray([]string{})
+
+	// then
+	if buf.String() != "*0\r\n" {
+		t.Fatalf("문자열이 다릅니다: %s", buf.String())
+	}
+}

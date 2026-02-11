@@ -254,3 +254,195 @@ func TestConcurrentSetGet(t *testing.T) {
 	wg.Wait()
 	// then: -race로 실행 시 race가 감지되지 않아야 함
 }
+
+// ===== List 명령어 통합 테스트 =====
+
+func TestLPushCommand(t *testing.T) {
+	// given
+	server := New(":6379")
+	go server.Start()
+	time.Sleep(time.Second)
+
+	conn, _ := net.Dial("tcp", "localhost:6379")
+	defer conn.Close()
+
+	// when: LPUSH lp-list a b c
+	conn.Write([]byte("*5\r\n$5\r\nLPUSH\r\n$7\r\nlp-list\r\n$1\r\na\r\n$1\r\nb\r\n$1\r\nc\r\n"))
+
+	// then: 길이 3 반환
+	reader := bufio.NewReader(conn)
+	response, _ := reader.ReadString('\n')
+
+	if response != ":3\r\n" {
+		t.Fatalf("응답: %s", response)
+	}
+}
+
+func TestRPushCommand(t *testing.T) {
+	// given
+	server := New(":6379")
+	go server.Start()
+	time.Sleep(time.Second)
+
+	conn, _ := net.Dial("tcp", "localhost:6379")
+	defer conn.Close()
+
+	// when: RPUSH rp-list x y
+	conn.Write([]byte("*4\r\n$5\r\nRPUSH\r\n$7\r\nrp-list\r\n$1\r\nx\r\n$1\r\ny\r\n"))
+
+	// then
+	reader := bufio.NewReader(conn)
+	response, _ := reader.ReadString('\n')
+
+	if response != ":2\r\n" {
+		t.Fatalf("응답: %s", response)
+	}
+}
+
+func TestLPopCommand(t *testing.T) {
+	// given: LPUSH lpop-list a b c → [c, b, a]
+	server := New(":6379")
+	go server.Start()
+	time.Sleep(time.Second)
+
+	conn, _ := net.Dial("tcp", "localhost:6379")
+	defer conn.Close()
+
+	reader := bufio.NewReader(conn)
+	conn.Write([]byte("*5\r\n$5\r\nLPUSH\r\n$9\r\nlpop-list\r\n$1\r\na\r\n$1\r\nb\r\n$1\r\nc\r\n"))
+	reader.ReadString('\n') // :3 소비
+
+	// when: LPOP lpop-list
+	conn.Write([]byte("*2\r\n$4\r\nLPOP\r\n$9\r\nlpop-list\r\n"))
+
+	// then: Head에서 제거 → c
+	line1, _ := reader.ReadString('\n')
+	line2, _ := reader.ReadString('\n')
+	response := line1 + line2
+
+	if response != "$1\r\nc\r\n" {
+		t.Fatalf("응답: %s", response)
+	}
+}
+
+func TestRPopCommand(t *testing.T) {
+	// given: LPUSH rpop-list a b c → [c, b, a]
+	server := New(":6379")
+	go server.Start()
+	time.Sleep(time.Second)
+
+	conn, _ := net.Dial("tcp", "localhost:6379")
+	defer conn.Close()
+
+	reader := bufio.NewReader(conn)
+	conn.Write([]byte("*5\r\n$5\r\nLPUSH\r\n$9\r\nrpop-list\r\n$1\r\na\r\n$1\r\nb\r\n$1\r\nc\r\n"))
+	reader.ReadString('\n') // :3 소비
+
+	// when: RPOP rpop-list
+	conn.Write([]byte("*2\r\n$4\r\nRPOP\r\n$9\r\nrpop-list\r\n"))
+
+	// then: Tail에서 제거 → a
+	line1, _ := reader.ReadString('\n')
+	line2, _ := reader.ReadString('\n')
+	response := line1 + line2
+
+	if response != "$1\r\na\r\n" {
+		t.Fatalf("응답: %s", response)
+	}
+}
+
+func TestLRangeCommand(t *testing.T) {
+	// given: RPUSH range-list a b c → [a, b, c]
+	server := New(":6379")
+	go server.Start()
+	time.Sleep(time.Second)
+
+	conn, _ := net.Dial("tcp", "localhost:6379")
+	defer conn.Close()
+
+	reader := bufio.NewReader(conn)
+	conn.Write([]byte("*5\r\n$5\r\nRPUSH\r\n$10\r\nrange-list\r\n$1\r\na\r\n$1\r\nb\r\n$1\r\nc\r\n"))
+	reader.ReadString('\n') // :3 소비
+
+	// when: LRANGE range-list 0 -1
+	conn.Write([]byte("*4\r\n$6\r\nLRANGE\r\n$10\r\nrange-list\r\n$1\r\n0\r\n$2\r\n-1\r\n"))
+
+	// then: *3\r\n$1\r\na\r\n$1\r\nb\r\n$1\r\nc\r\n
+	// 1줄(배열 헤더) + 2줄*3(bulk string) = 7줄
+	var response string
+	for i := 0; i < 7; i++ {
+		line, _ := reader.ReadString('\n')
+		response += line
+	}
+
+	expected := "*3\r\n$1\r\na\r\n$1\r\nb\r\n$1\r\nc\r\n"
+	if response != expected {
+		t.Fatalf("응답: %q, expected: %q", response, expected)
+	}
+}
+
+func TestLPopNonExistentKey(t *testing.T) {
+	// given
+	server := New(":6379")
+	go server.Start()
+	time.Sleep(time.Second)
+
+	conn, _ := net.Dial("tcp", "localhost:6379")
+	defer conn.Close()
+
+	// when: 존재하지 않는 키에 LPOP
+	conn.Write([]byte("*2\r\n$4\r\nLPOP\r\n$10\r\nno-key-pop\r\n"))
+
+	// then: Null 응답
+	reader := bufio.NewReader(conn)
+	response, _ := reader.ReadString('\n')
+
+	if response != "$-1\r\n" {
+		t.Fatalf("응답: %s", response)
+	}
+}
+
+func TestLRangeNonExistentKey(t *testing.T) {
+	// given
+	server := New(":6379")
+	go server.Start()
+	time.Sleep(time.Second)
+
+	conn, _ := net.Dial("tcp", "localhost:6379")
+	defer conn.Close()
+
+	// when: 존재하지 않는 키에 LRANGE
+	conn.Write([]byte("*4\r\n$6\r\nLRANGE\r\n$12\r\nno-key-range\r\n$1\r\n0\r\n$2\r\n-1\r\n"))
+
+	// then: 빈 배열
+	reader := bufio.NewReader(conn)
+	response, _ := reader.ReadString('\n')
+
+	if response != "*0\r\n" {
+		t.Fatalf("응답: %s", response)
+	}
+}
+
+func TestWrongTypeError(t *testing.T) {
+	// given: SET으로 String 타입 저장
+	server := New(":6379")
+	go server.Start()
+	time.Sleep(time.Second)
+
+	conn, _ := net.Dial("tcp", "localhost:6379")
+	defer conn.Close()
+
+	reader := bufio.NewReader(conn)
+	conn.Write([]byte("*3\r\n$3\r\nSET\r\n$8\r\nwt-key01\r\n$5\r\nvalue\r\n"))
+	reader.ReadString('\n') // +OK 소비
+
+	// when: 같은 키에 LPUSH 시도
+	conn.Write([]byte("*3\r\n$5\r\nLPUSH\r\n$8\r\nwt-key01\r\n$1\r\na\r\n"))
+
+	// then: WRONGTYPE 에러
+	response, _ := reader.ReadString('\n')
+	expected := "-ERR WRONGTYPE Operation against a key holding the wrong kind of value\r\n"
+	if response != expected {
+		t.Fatalf("응답: %s", response)
+	}
+}
