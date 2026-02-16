@@ -3,6 +3,7 @@ package storage
 import (
 	"errors"
 	"sync"
+	"time"
 )
 
 type EntryType int
@@ -15,17 +16,24 @@ const (
 )
 
 type Entry struct {
-	Type EntryType
-	Str  string
-	List *List
+	Type     EntryType
+	Str      string
+	List     *List
+	ExpireAt *time.Time
 }
 type Store struct {
 	data map[string]*Entry
 	mu   sync.RWMutex
+	heap *MinHeap
+	done chan struct{}
 }
 
 func New() *Store {
-	return &Store{data: make(map[string]*Entry)}
+	return &Store{
+		data: make(map[string]*Entry),
+		heap: NewMinHeap(),
+		done: make(chan struct{}),
+	}
 }
 
 func (s *Store) Set(key, value string) {
@@ -61,7 +69,7 @@ func (s *Store) LPush(key string, values ...string) (int, error) {
 	defer s.mu.Unlock()
 
 	entry, exist := s.data[key]
-	
+
 	if !exist {
 		newEntry := Entry{Type: TypeList, List: NewList()}
 		entry = &newEntry
@@ -84,7 +92,7 @@ func (s *Store) RPush(key string, values ...string) (int, error) {
 	defer s.mu.Unlock()
 
 	entry, exist := s.data[key]
-	
+
 	if !exist {
 		newEntry := Entry{Type: TypeList, List: NewList()}
 		entry = &newEntry
@@ -108,7 +116,7 @@ func (s *Store) LPop(key string) (string, bool, error) {
 	defer s.mu.Unlock()
 
 	entry, exist := s.data[key]
-	
+
 	if !exist {
 		return "", exist, nil
 	}
@@ -122,7 +130,7 @@ func (s *Store) LPop(key string) (string, bool, error) {
 	if entry.List.Length == 0 {
 		delete(s.data, key)
 	}
-	
+
 	return value, result, nil
 }
 func (s *Store) RPop(key string) (string, bool, error) {
@@ -130,7 +138,7 @@ func (s *Store) RPop(key string) (string, bool, error) {
 	defer s.mu.Unlock()
 
 	entry, exist := s.data[key]
-	
+
 	if !exist {
 		return "", exist, nil
 	}
@@ -144,7 +152,7 @@ func (s *Store) RPop(key string) (string, bool, error) {
 	if entry.List.Length == 0 {
 		delete(s.data, key)
 	}
-	
+
 	return value, result, nil
 }
 
@@ -153,7 +161,7 @@ func (s *Store) LRange(key string, start, stop int) ([]string, error) {
 	defer s.mu.RUnlock()
 
 	entry, exist := s.data[key]
-	
+
 	if !exist {
 		return []string{}, nil
 	}
@@ -163,6 +171,68 @@ func (s *Store) LRange(key string, start, stop int) ([]string, error) {
 	}
 
 	result := entry.List.Range(start, stop)
-	
+
 	return result, nil
+}
+
+// 키에 만료 시간을 설정한다.
+// 키가 존재하면 1, 존재하지 않으면 0을 반환한다.
+func (s *Store) Expire(key string, seconds int) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entry, exist := s.data[key]
+
+	if exist {
+		expire := time.Now().Add(time.Duration(seconds) * time.Second)
+		entry.ExpireAt = &expire
+		s.heap.Push(&HeapItem{Key: key, ExpireAt: expire})
+		return 1
+	} else {
+		return 0
+	}
+}
+
+// 키의 남은 수명(초)을 반환한다.
+// TTL이 없으면 -1, 키가 존재하지 않으면 -2를 반환한다.
+func (s *Store) TTL(key string) int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	entry, exist := s.data[key]
+
+	if exist {
+		if entry.ExpireAt == nil {
+			return -1
+		}
+		return int(time.Until(*entry.ExpireAt).Seconds())
+	} else {
+		return -2
+	}
+}
+
+// 키를 삭제한다. 삭제된 키의 개수(0 또는 1)를 반환한다.
+func (s *Store) Del(key string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, exist := s.data[key]
+	if !exist {
+		return 0
+	} else {
+		delete(s.data, key)
+		return 1
+	}
+}
+
+// 키에서 만료 시간을 제거한다.
+// TTL이 존재하고 제거했으면 1, 아니면 0을 반환한다.
+func (s *Store) Persist(key string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entry, exist := s.data[key]
+
+	if !exist || entry.ExpireAt == nil {
+		return 0
+	} else {
+		entry.ExpireAt = nil
+		return 1
+	}
 }
