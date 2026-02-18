@@ -38,6 +38,9 @@ func (s *Server) Start() error {
 	defer s.listener.Close() // 서버 종료 전 리소스 정리
 	log.Printf("현재 서버가 [%s] 에서 리스닝중입니다.", s.addr)
 
+	s.store.StartExpiry()
+	defer s.store.StopExpiry()
+
 	// 무한루프
 	for {
 		// Accept() 호출 -> 연결대기(블로킹)
@@ -167,6 +170,39 @@ func (s *Server) handleConnection(conn net.Conn) {
 				} else {
 					writer.WriteArray(result)
 				}
+			}
+
+		case "EXPIRE":
+			if len(value.Array) < 3 {
+				writer.WriteError("missing argument")
+			} else {
+				seconds, _ := strconv.Atoi(value.Array[2].Str)
+				result := s.store.Expire(value.Array[1].Str, seconds)
+				writer.WriteInteger(result)
+			}
+
+		case "TTL":
+			if len(value.Array) < 2 {
+				writer.WriteError("missing argument")
+			} else {
+				result := s.store.TTL(value.Array[1].Str)
+				writer.WriteInteger(result)
+			}
+
+		case "DEL":
+			if len(value.Array) < 2 {
+				writer.WriteError("missing argument")
+			} else {
+				result := s.store.Del(value.Array[1].Str)
+				writer.WriteInteger(result)
+			}
+
+		case "PERSIST":
+			if len(value.Array) < 2 {
+				writer.WriteError("missing argument")
+			} else {
+				result := s.store.Persist(value.Array[1].Str)
+				writer.WriteInteger(result)
 			}
 
 		default:
