@@ -46,15 +46,15 @@ func (s *Store) Get(key string) (string, bool) {
 	// 서로다른 고루틴 간의 읽기 작업에서는 블로킹 없이 동시에 통과
 	// A 고루틴이 쓰기 작업 도중, B 고루틴이 데이터를 읽고 있다면 데이터 불일치 현상이 생길 수 있기때문에
 	// RLock(읽기)이 걸려있으면 Lock(쓰기)은 대기, Lock이 걸려있으면 RLock은 대기
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock() // isExpired 내부함수에서 데이터 쓰기작업이 포함되어있어 Lock으로 변경
 
 	entry, exist := s.data[key]
 
 	if !exist {
 		return "", false
 	} else {
-		if entry.Type != TypeString {
+		if entry.Type != TypeString || s.isExpired(key) {
 			return "", false
 		}
 	}
@@ -70,7 +70,7 @@ func (s *Store) LPush(key string, values ...string) (int, error) {
 
 	entry, exist := s.data[key]
 
-	if !exist {
+	if !exist || s.isExpired(key) {
 		newEntry := Entry{Type: TypeList, List: NewList()}
 		entry = &newEntry
 		s.data[key] = entry
@@ -93,7 +93,7 @@ func (s *Store) RPush(key string, values ...string) (int, error) {
 
 	entry, exist := s.data[key]
 
-	if !exist {
+	if !exist || s.isExpired(key) {
 		newEntry := Entry{Type: TypeList, List: NewList()}
 		entry = &newEntry
 		s.data[key] = entry
@@ -125,6 +125,10 @@ func (s *Store) LPop(key string) (string, bool, error) {
 		return "", false, ErrWrongType
 	}
 
+	if s.isExpired(key) {
+		return "", false, nil
+	}
+
 	value, result := entry.List.LPop()
 
 	if entry.List.Length == 0 {
@@ -147,6 +151,10 @@ func (s *Store) RPop(key string) (string, bool, error) {
 		return "", false, ErrWrongType
 	}
 
+	if s.isExpired(key) {
+		return "", false, nil
+	}
+
 	value, result := entry.List.RPop()
 
 	if entry.List.Length == 0 {
@@ -157,8 +165,8 @@ func (s *Store) RPop(key string) (string, bool, error) {
 }
 
 func (s *Store) LRange(key string, start, stop int) ([]string, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	entry, exist := s.data[key]
 
@@ -168,6 +176,10 @@ func (s *Store) LRange(key string, start, stop int) ([]string, error) {
 
 	if entry.Type != TypeList {
 		return nil, ErrWrongType
+	}
+
+	if s.isExpired(key) {
+		return []string{}, nil
 	}
 
 	result := entry.List.Range(start, stop)
@@ -235,4 +247,57 @@ func (s *Store) Persist(key string) int {
 		entry.ExpireAt = nil
 		return 1
 	}
+}
+
+// 키가 만료되었는지 확인하고, 만료되었으면 삭제한다.
+// mu.Lock()을 잡고 있는 상태에서 호출해야 한다 (내부용).
+func (s *Store) isExpired(key string) bool {
+	expire := s.data[key].ExpireAt
+
+	if expire == nil {
+		return false
+	}
+
+	if expire.Before(time.Now()) {
+		delete(s.data, key)
+		return true
+	} else {
+		return false
+	}
+}
+
+// 백그라운드 만료 처리를 시작한다.
+// 1초마다 힙을 확인하고 만료된 키를 삭제한다.
+func (s *Store) StartExpiry() {
+	go func() {
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-s.done:
+				return
+			case <-ticker.C:
+				s.mu.Lock()
+				for {
+					item := s.heap.Peek()
+					if item == nil || !item.ExpireAt.Before(time.Now()) {
+						break
+					}
+					s.heap.Pop()
+
+					entry, exist := s.data[item.Key]
+					if exist && entry.ExpireAt != nil && entry.ExpireAt.Equal(item.ExpireAt) {
+						delete(s.data, item.Key)
+					}
+				}
+				s.mu.Unlock()
+			}
+		}
+	}()
+}
+
+// 백그라운드 만료 처리를 중지한다.
+func (s *Store) StopExpiry() {
+	close(s.done)
 }
