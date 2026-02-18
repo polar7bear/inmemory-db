@@ -446,3 +446,178 @@ func TestWrongTypeError(t *testing.T) {
 		t.Fatalf("응답: %s", response)
 	}
 }
+
+// ===== TTL 명령어 통합 테스트 =====
+
+func TestExpireCommand(t *testing.T) {
+	// given: SET으로 키 생성
+	server := New(":6379")
+	go server.Start()
+	time.Sleep(time.Second)
+
+	conn, _ := net.Dial("tcp", "localhost:6379")
+	defer conn.Close()
+
+	reader := bufio.NewReader(conn)
+	conn.Write([]byte("*3\r\n$3\r\nSET\r\n$6\r\nex-key\r\n$5\r\nvalue\r\n"))
+	reader.ReadString('\n') // +OK 소비
+
+	// when: EXPIRE ex-key 60
+	conn.Write([]byte("*3\r\n$6\r\nEXPIRE\r\n$6\r\nex-key\r\n$2\r\n60\r\n"))
+
+	// then: 1 반환
+	response, _ := reader.ReadString('\n')
+	if response != ":1\r\n" {
+		t.Fatalf("응답: %s", response)
+	}
+}
+
+func TestExpireNonExistentKeyCommand(t *testing.T) {
+	// given
+	server := New(":6379")
+	go server.Start()
+	time.Sleep(time.Second)
+
+	conn, _ := net.Dial("tcp", "localhost:6379")
+	defer conn.Close()
+
+	// when: 존재하지 않는 키에 EXPIRE
+	conn.Write([]byte("*3\r\n$6\r\nEXPIRE\r\n$10\r\nno-ex-key0\r\n$2\r\n60\r\n"))
+
+	// then: 0 반환
+	reader := bufio.NewReader(conn)
+	response, _ := reader.ReadString('\n')
+	if response != ":0\r\n" {
+		t.Fatalf("응답: %s", response)
+	}
+}
+
+func TestTTLCommand(t *testing.T) {
+	// given: SET + EXPIRE
+	server := New(":6379")
+	go server.Start()
+	time.Sleep(time.Second)
+
+	conn, _ := net.Dial("tcp", "localhost:6379")
+	defer conn.Close()
+
+	reader := bufio.NewReader(conn)
+	conn.Write([]byte("*3\r\n$3\r\nSET\r\n$7\r\nttl-key\r\n$5\r\nvalue\r\n"))
+	reader.ReadString('\n') // +OK 소비
+	conn.Write([]byte("*3\r\n$6\r\nEXPIRE\r\n$7\r\nttl-key\r\n$2\r\n60\r\n"))
+	reader.ReadString('\n') // :1 소비
+
+	// when: TTL ttl-key
+	conn.Write([]byte("*2\r\n$3\r\nTTL\r\n$7\r\nttl-key\r\n"))
+
+	// then: 양수 반환 (59 또는 60)
+	response, _ := reader.ReadString('\n')
+	if response != ":60\r\n" && response != ":59\r\n" {
+		t.Fatalf("응답: %s", response)
+	}
+}
+
+func TestTTLNoExpiryCommand(t *testing.T) {
+	// given: TTL 없이 SET
+	server := New(":6379")
+	go server.Start()
+	time.Sleep(time.Second)
+
+	conn, _ := net.Dial("tcp", "localhost:6379")
+	defer conn.Close()
+
+	reader := bufio.NewReader(conn)
+	conn.Write([]byte("*3\r\n$3\r\nSET\r\n$10\r\nttl-noexp0\r\n$5\r\nvalue\r\n"))
+	reader.ReadString('\n') // +OK 소비
+
+	// when: TTL
+	conn.Write([]byte("*2\r\n$3\r\nTTL\r\n$10\r\nttl-noexp0\r\n"))
+
+	// then: -1
+	response, _ := reader.ReadString('\n')
+	if response != ":-1\r\n" {
+		t.Fatalf("응답: %s", response)
+	}
+}
+
+func TestTTLNonExistentKeyCommand(t *testing.T) {
+	// given
+	server := New(":6379")
+	go server.Start()
+	time.Sleep(time.Second)
+
+	conn, _ := net.Dial("tcp", "localhost:6379")
+	defer conn.Close()
+
+	// when: 존재하지 않는 키에 TTL
+	conn.Write([]byte("*2\r\n$3\r\nTTL\r\n$12\r\nno-ttl-key00\r\n"))
+
+	// then: -2
+	reader := bufio.NewReader(conn)
+	response, _ := reader.ReadString('\n')
+	if response != ":-2\r\n" {
+		t.Fatalf("응답: %s", response)
+	}
+}
+
+func TestDelCommand(t *testing.T) {
+	// given: SET으로 키 생성
+	server := New(":6379")
+	go server.Start()
+	time.Sleep(time.Second)
+
+	conn, _ := net.Dial("tcp", "localhost:6379")
+	defer conn.Close()
+
+	reader := bufio.NewReader(conn)
+	conn.Write([]byte("*3\r\n$3\r\nSET\r\n$7\r\ndel-key\r\n$5\r\nvalue\r\n"))
+	reader.ReadString('\n') // +OK 소비
+
+	// when: DEL del-key
+	conn.Write([]byte("*2\r\n$3\r\nDEL\r\n$7\r\ndel-key\r\n"))
+
+	// then: 1 반환
+	response, _ := reader.ReadString('\n')
+	if response != ":1\r\n" {
+		t.Fatalf("응답: %s", response)
+	}
+
+	// GET하면 null
+	conn.Write([]byte("*2\r\n$3\r\nGET\r\n$7\r\ndel-key\r\n"))
+	response2, _ := reader.ReadString('\n')
+	if response2 != "$-1\r\n" {
+		t.Fatalf("삭제 후 GET 응답: %s", response2)
+	}
+}
+
+func TestPersistCommand(t *testing.T) {
+	// given: SET + EXPIRE
+	server := New(":6379")
+	go server.Start()
+	time.Sleep(time.Second)
+
+	conn, _ := net.Dial("tcp", "localhost:6379")
+	defer conn.Close()
+
+	reader := bufio.NewReader(conn)
+	conn.Write([]byte("*3\r\n$3\r\nSET\r\n$11\r\npersist-key\r\n$5\r\nvalue\r\n"))
+	reader.ReadString('\n') // +OK 소비
+	conn.Write([]byte("*3\r\n$6\r\nEXPIRE\r\n$11\r\npersist-key\r\n$2\r\n60\r\n"))
+	reader.ReadString('\n') // :1 소비
+
+	// when: PERSIST persist-key
+	conn.Write([]byte("*2\r\n$7\r\nPERSIST\r\n$11\r\npersist-key\r\n"))
+
+	// then: 1 반환
+	response, _ := reader.ReadString('\n')
+	if response != ":1\r\n" {
+		t.Fatalf("응답: %s", response)
+	}
+
+	// TTL 확인: -1 (만료 없음)
+	conn.Write([]byte("*2\r\n$3\r\nTTL\r\n$11\r\npersist-key\r\n"))
+	ttlResponse, _ := reader.ReadString('\n')
+	if ttlResponse != ":-1\r\n" {
+		t.Fatalf("PERSIST 후 TTL: %s", ttlResponse)
+	}
+}
