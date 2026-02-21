@@ -2,6 +2,8 @@ package storage
 
 import (
 	"errors"
+	"inmemory-db/internal/persistence"
+	"os"
 	"sync"
 	"time"
 )
@@ -300,4 +302,40 @@ func (s *Store) StartExpiry() {
 // 백그라운드 만료 처리를 중지한다.
 func (s *Store) StopExpiry() {
 	close(s.done)
+}
+
+func (s *Store) Save(path string) error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	encoder := persistence.NewEncoder(file)
+	encoder.WriteHeader()
+
+	for key, entry := range s.data {
+		// 이미 만료된 키는 저장할 필요 없으니 건너뛴다.
+		// isExpired()는 삭제(쓰기)를 하기 때문에 RLock 상태에서 호출 불가
+		// 읽기 전용으로 만료 여부만 확인한다.
+		if entry.ExpireAt != nil && entry.ExpireAt.Before(time.Now()) {
+			continue
+		}
+
+		switch entry.Type {
+		case TypeString:
+			encoder.WriteStringEntry(key, entry.Str, entry.ExpireAt)
+
+		case TypeList:
+			values := entry.List.Range(0, entry.List.Length-1)
+			encoder.WriteListEntry(key, values, entry.ExpireAt)
+
+		}
+	}
+
+	encoder.WriteEOF()
+	return encoder.Flush()
 }
