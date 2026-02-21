@@ -135,26 +135,34 @@ func (s *Server) handleConnection(conn net.Conn) {
 			}
 
 		case "LPOP":
-			value, result, err := s.store.LPop(value.Array[1].Str)
-			if err != nil {
-				writer.WriteError(err.Error())
+			if len(value.Array) < 2 {
+				writer.WriteError("missing argument")
 			} else {
-				if !result {
-					writer.WriteNull()
+				value, result, err := s.store.LPop(value.Array[1].Str)
+				if err != nil {
+					writer.WriteError(err.Error())
 				} else {
-					writer.WriteBulkString(value)
+					if !result {
+						writer.WriteNull()
+					} else {
+						writer.WriteBulkString(value)
+					}
 				}
 			}
 
 		case "RPOP":
-			value, result, err := s.store.RPop(value.Array[1].Str)
-			if err != nil {
-				writer.WriteError(err.Error())
+			if len(value.Array) < 2 {
+				writer.WriteError("missing argument")
 			} else {
-				if !result {
-					writer.WriteNull()
+				value, result, err := s.store.RPop(value.Array[1].Str)
+				if err != nil {
+					writer.WriteError(err.Error())
 				} else {
-					writer.WriteBulkString(value)
+					if !result {
+						writer.WriteNull()
+					} else {
+						writer.WriteBulkString(value)
+					}
 				}
 			}
 
@@ -203,6 +211,14 @@ func (s *Server) handleConnection(conn net.Conn) {
 			} else {
 				result := s.store.Persist(value.Array[1].Str)
 				writer.WriteInteger(result)
+			}
+
+		case "SAVE":
+			err := s.store.Save("dump.rdb")
+			if err != nil {
+				writer.WriteError(err.Error())
+			} else {
+				writer.WriteSimpleString("OK")
 			}
 
 		default:
