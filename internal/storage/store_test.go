@@ -2,6 +2,8 @@ package storage
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -634,4 +636,122 @@ func TestConcurrentExpire(t *testing.T) {
 
 	wg.Wait()
 	// then: -race 플래그로 실행 시 race가 감지되지 않아야 함
+}
+
+func TestSave_EmptyStore(t *testing.T) {
+	// given: 빈 Store
+	store := New()
+	path := filepath.Join(t.TempDir(), "empty.rdb")
+
+	// when
+	err := store.Save(path)
+
+	// then: Header(7) + EOF(1) = 8바이트
+	if err != nil {
+		t.Fatalf("에러 발생: %v", err)
+	}
+	data, _ := os.ReadFile(path)
+	if len(data) != 8 {
+		t.Fatalf("파일 크기: %d, expected: 8", len(data))
+	}
+	if string(data[:6]) != "MINIDB" {
+		t.Fatalf("Magic bytes: %s", string(data[:6]))
+	}
+	if data[len(data)-1] != 0xFF {
+		t.Fatalf("EOF: 0x%02x, expected: 0xFF", data[len(data)-1])
+	}
+}
+
+func TestSave_StringEntries(t *testing.T) {
+	// given
+	store := New()
+	store.Set("key", "value")
+	path := filepath.Join(t.TempDir(), "string.rdb")
+
+	// when
+	err := store.Save(path)
+
+	// then: Header(7) + String("key"=3,"value"=5: 1+4+3+4+5+1=18) + EOF(1) = 26
+	if err != nil {
+		t.Fatalf("에러 발생: %v", err)
+	}
+	data, _ := os.ReadFile(path)
+	if len(data) != 26 {
+		t.Fatalf("파일 크기: %d, expected: 26", len(data))
+	}
+	// 엔트리 타입이 TypeString(0x00)
+	if data[7] != 0x00 {
+		t.Fatalf("Entry type: 0x%02x, expected: 0x00", data[7])
+	}
+}
+
+func TestSave_ListEntries(t *testing.T) {
+	// given
+	store := New()
+	store.RPush("mylist", "a", "b", "c")
+	path := filepath.Join(t.TempDir(), "list.rdb")
+
+	// when
+	err := store.Save(path)
+
+	// then: Header(7) + List("mylist"=6,["a","b","c"]: 1+4+6+4+(4+1)*3+1=31) + EOF(1) = 39
+	if err != nil {
+		t.Fatalf("에러 발생: %v", err)
+	}
+	data, _ := os.ReadFile(path)
+	if len(data) != 39 {
+		t.Fatalf("파일 크기: %d, expected: 39", len(data))
+	}
+	// 엔트리 타입이 TypeList(0x01)
+	if data[7] != 0x01 {
+		t.Fatalf("Entry type: 0x%02x, expected: 0x01", data[7])
+	}
+}
+
+func TestSave_SkipExpiredKeys(t *testing.T) {
+	// given: 만료된 키 1개 + 유효한 키 1개
+	store := New()
+	store.Set("expired", "old")
+	store.Set("valid", "new")
+	store.Expire("expired", 1)
+	time.Sleep(2 * time.Second)
+
+	path := filepath.Join(t.TempDir(), "skip.rdb")
+
+	// when
+	err := store.Save(path)
+
+	// then: 만료 키 제외, "valid" 키만 저장
+	// Header(7) + String("valid"=5,"new"=3: 1+4+5+4+3+1=18) + EOF(1) = 26
+	if err != nil {
+		t.Fatalf("에러 발생: %v", err)
+	}
+	data, _ := os.ReadFile(path)
+	if len(data) != 26 {
+		t.Fatalf("파일 크기: %d, expected: 26 (만료 키 제외)", len(data))
+	}
+}
+
+func TestSave_WithTTL(t *testing.T) {
+	// given: TTL이 설정된 키
+	store := New()
+	store.Set("session", "abc")
+	store.Expire("session", 3600)
+	path := filepath.Join(t.TempDir(), "ttl.rdb")
+
+	// when
+	err := store.Save(path)
+
+	// then: Header(7) + String("session"=7,"abc"=3,+TTL: 1+4+7+4+3+1+8=28) + EOF(1) = 36
+	if err != nil {
+		t.Fatalf("에러 발생: %v", err)
+	}
+	data, _ := os.ReadFile(path)
+	if len(data) != 36 {
+		t.Fatalf("파일 크기: %d, expected: 36", len(data))
+	}
+	// HasExpiry 마커 확인: type(1)+keylen(4)+key(7)+vallen(4)+val(3) = offset 7+19 = 26
+	if data[26] != 0x01 {
+		t.Fatalf("HasExpiry: 0x%02x, expected: 0x01", data[26])
+	}
 }

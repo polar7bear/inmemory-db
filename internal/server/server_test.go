@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"net"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -620,4 +621,30 @@ func TestPersistCommand(t *testing.T) {
 	if ttlResponse != ":-1\r\n" {
 		t.Fatalf("PERSIST 후 TTL: %s", ttlResponse)
 	}
+}
+
+func TestSaveCommand(t *testing.T) {
+	// given: SET으로 키 생성
+	server := New(":6379")
+	go server.Start()
+	time.Sleep(time.Second)
+
+	conn, _ := net.Dial("tcp", "localhost:6379")
+	defer conn.Close()
+
+	reader := bufio.NewReader(conn)
+	conn.Write([]byte("*3\r\n$3\r\nSET\r\n$8\r\nsave-key\r\n$5\r\nvalue\r\n"))
+	reader.ReadString('\n') // +OK 소비
+
+	// when: SAVE
+	conn.Write([]byte("*1\r\n$4\r\nSAVE\r\n"))
+
+	// then: +OK 응답
+	response, _ := reader.ReadString('\n')
+	if response != "+OK\r\n" {
+		t.Fatalf("응답: %s", response)
+	}
+
+	// cleanup
+	os.Remove("dump.rdb")
 }
