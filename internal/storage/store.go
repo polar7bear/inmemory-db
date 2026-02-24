@@ -337,5 +337,6 @@ func (s *Store) Save(path string) error {
 	}
 
 	encoder.WriteEOF()
+	encoder.WriteChecksum()
 	return encoder.Flush()
 }
