@@ -12,4 +12,6 @@ const (
 	HasExpiry byte = 0x01
 
 	EOF byte = 0xFF
+
+	ChecksumSize = 4
 )
