@@ -3,23 +3,30 @@ package persistence
 import (
 	"bufio"
 	"encoding/binary"
+	"hash"
+	"hash/crc32"
 	"io"
 	"time"
 )
 
 type Encoder struct {
-	w *bufio.Writer
+	w    *bufio.Writer
+	hash hash.Hash32
 }
 
 func NewEncoder(w io.Writer) *Encoder {
-	return &Encoder{bufio.NewWriter(w)}
+	return &Encoder{
+		w:    bufio.NewWriter(w),
+		hash: crc32.NewIEEE(),
+	}
 }
 
 // 파일 헤더를 쓴다. Magic bytes "MINIDB" + Version 0x01 = 총 7바이트.
 func (e *Encoder) WriteHeader() error {
-	e.w.Write(MagicBytes[:])
-	_, err := e.w.Write([]byte{Version})
-	return err
+	if err := e.writeBytes(MagicBytes[:]); err != nil {
+		return err
+	}
+	return e.writeBytes([]byte{Version})
 }
 
 // String 타입 엔트리를 쓴다.
@@ -68,9 +75,21 @@ func (e *Encoder) Flush() error {
 	return e.w.Flush()
 }
 
+func (e *Encoder) WriteChecksum() error {
+	checksum := e.hash.Sum32()
+	buf := make([]byte, 4)
+	binary.BigEndian.PutUint32(buf, checksum)
+	_, err := e.w.Write(buf)
+	return err
+}
+
+// ========== 헬퍼 메서드 ==========
 
 func (e *Encoder) writeBytes(data []byte) error {
 	_, err := e.w.Write(data)
+	if err == nil {
+		e.hash.Write(data)
+	}
 	return err
 }
 
