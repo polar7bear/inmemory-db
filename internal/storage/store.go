@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"bytes"
 	"errors"
 	"inmemory-db/internal/persistence"
 	"os"
@@ -339,4 +340,67 @@ func (s *Store) Save(path string) error {
 	encoder.WriteEOF()
 	encoder.WriteChecksum()
 	return encoder.Flush()
+}
+
+func (s *Store) Load(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+
+	if err := persistence.VerifyChecksum(path); err != nil {
+		return err
+	}
+
+	content := data[:len(data)-persistence.ChecksumSize]
+	decoder := persistence.NewDecoder(bytes.NewReader(content))
+
+	if err := decoder.ReadHeader(); err != nil {
+		return err
+	}
+
+	for {
+		entry, err := decoder.ReadEntry()
+		if err != nil {
+			return err
+		}
+		if entry == nil {
+			break
+		}
+
+		if entry.ExpireAt != nil && entry.ExpireAt.Before(time.Now()) {
+			continue
+		}
+
+		switch entry.Type {
+		case persistence.TypeString:
+			s.data[entry.Key] = &Entry{
+				Type:     TypeString,
+				Str:      entry.Value,
+				ExpireAt: entry.ExpireAt,
+			}
+
+		case persistence.TypeList:
+			list := NewList()
+			for _, v := range entry.Values {
+				list.RPush(v)
+			}
+			s.data[entry.Key] = &Entry{
+				Type:     TypeList,
+				List:     list,
+				ExpireAt: entry.ExpireAt,
+			}
+		}
+
+		if entry.ExpireAt != nil {
+			s.heap.Push(&HeapItem{
+				Key:      entry.Key,
+				ExpireAt: *entry.ExpireAt,
+			})
+		}
+	}
+	return nil
 }
