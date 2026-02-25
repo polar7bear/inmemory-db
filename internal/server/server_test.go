@@ -648,3 +648,51 @@ func TestSaveCommand(t *testing.T) {
 	// cleanup
 	os.Remove("dump.rdb")
 }
+
+func TestSaveAndLoad(t *testing.T) {
+	// given: 서버1에서 SET + SAVE
+	server1 := New(":16379")
+	go server1.Start()
+	time.Sleep(time.Second)
+
+	conn1, _ := net.Dial("tcp", "localhost:16379")
+	reader1 := bufio.NewReader(conn1)
+
+	// SET load-key hello
+	conn1.Write([]byte("*3\r\n$3\r\nSET\r\n$8\r\nload-key\r\n$5\r\nhello\r\n"))
+	reader1.ReadString('\n') // +OK
+
+	// SAVE
+	conn1.Write([]byte("*1\r\n$4\r\nSAVE\r\n"))
+	saveResp, _ := reader1.ReadString('\n')
+	if saveResp != "+OK\r\n" {
+		t.Fatalf("SAVE 응답: %s", saveResp)
+	}
+	conn1.Close()
+
+	// when: 새 서버2를 같은 dump.rdb로 시작 (Load가 자동 실행됨)
+	server2 := New(":16380")
+	go server2.Start()
+	time.Sleep(time.Second)
+
+	conn2, _ := net.Dial("tcp", "localhost:16380")
+	defer conn2.Close()
+	reader2 := bufio.NewReader(conn2)
+
+	// GET load-key
+	conn2.Write([]byte("*2\r\n$3\r\nGET\r\n$8\r\nload-key\r\n"))
+
+	// then: 이전 서버에서 저장한 값이 복원됨
+	// $5\r\nhello\r\n
+	lenLine, _ := reader2.ReadString('\n')
+	if lenLine != "$5\r\n" {
+		t.Fatalf("GET 길이: %s", lenLine)
+	}
+	valLine, _ := reader2.ReadString('\n')
+	if valLine != "hello\r\n" {
+		t.Fatalf("GET 값: %s", valLine)
+	}
+
+	// cleanup
+	os.Remove("dump.rdb")
+}

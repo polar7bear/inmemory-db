@@ -646,19 +646,19 @@ func TestSave_EmptyStore(t *testing.T) {
 	// when
 	err := store.Save(path)
 
-	// then: Header(7) + EOF(1) = 8바이트
+	// then: Header(7) + EOF(1) + Checksum(4) = 12바이트
 	if err != nil {
 		t.Fatalf("에러 발생: %v", err)
 	}
 	data, _ := os.ReadFile(path)
-	if len(data) != 8 {
-		t.Fatalf("파일 크기: %d, expected: 8", len(data))
+	if len(data) != 12 {
+		t.Fatalf("파일 크기: %d, expected: 12", len(data))
 	}
 	if string(data[:6]) != "MINIDB" {
 		t.Fatalf("Magic bytes: %s", string(data[:6]))
 	}
-	if data[len(data)-1] != 0xFF {
-		t.Fatalf("EOF: 0x%02x, expected: 0xFF", data[len(data)-1])
+	if data[7] != 0xFF {
+		t.Fatalf("EOF: 0x%02x, expected: 0xFF", data[7])
 	}
 }
 
@@ -671,13 +671,13 @@ func TestSave_StringEntries(t *testing.T) {
 	// when
 	err := store.Save(path)
 
-	// then: Header(7) + String("key"=3,"value"=5: 1+4+3+4+5+1=18) + EOF(1) = 26
+	// then: Header(7) + String("key"=3,"value"=5: 1+4+3+4+5+1=18) + EOF(1) + Checksum(4) = 30
 	if err != nil {
 		t.Fatalf("에러 발생: %v", err)
 	}
 	data, _ := os.ReadFile(path)
-	if len(data) != 26 {
-		t.Fatalf("파일 크기: %d, expected: 26", len(data))
+	if len(data) != 30 {
+		t.Fatalf("파일 크기: %d, expected: 30", len(data))
 	}
 	// 엔트리 타입이 TypeString(0x00)
 	if data[7] != 0x00 {
@@ -694,13 +694,13 @@ func TestSave_ListEntries(t *testing.T) {
 	// when
 	err := store.Save(path)
 
-	// then: Header(7) + List("mylist"=6,["a","b","c"]: 1+4+6+4+(4+1)*3+1=31) + EOF(1) = 39
+	// then: Header(7) + List("mylist"=6,["a","b","c"]: 1+4+6+4+(4+1)*3+1=31) + EOF(1) + Checksum(4) = 43
 	if err != nil {
 		t.Fatalf("에러 발생: %v", err)
 	}
 	data, _ := os.ReadFile(path)
-	if len(data) != 39 {
-		t.Fatalf("파일 크기: %d, expected: 39", len(data))
+	if len(data) != 43 {
+		t.Fatalf("파일 크기: %d, expected: 43", len(data))
 	}
 	// 엔트리 타입이 TypeList(0x01)
 	if data[7] != 0x01 {
@@ -722,13 +722,13 @@ func TestSave_SkipExpiredKeys(t *testing.T) {
 	err := store.Save(path)
 
 	// then: 만료 키 제외, "valid" 키만 저장
-	// Header(7) + String("valid"=5,"new"=3: 1+4+5+4+3+1=18) + EOF(1) = 26
+	// Header(7) + String("valid"=5,"new"=3: 1+4+5+4+3+1=18) + EOF(1) + Checksum(4) = 30
 	if err != nil {
 		t.Fatalf("에러 발생: %v", err)
 	}
 	data, _ := os.ReadFile(path)
-	if len(data) != 26 {
-		t.Fatalf("파일 크기: %d, expected: 26 (만료 키 제외)", len(data))
+	if len(data) != 30 {
+		t.Fatalf("파일 크기: %d, expected: 30 (만료 키 제외)", len(data))
 	}
 }
 
@@ -742,16 +742,184 @@ func TestSave_WithTTL(t *testing.T) {
 	// when
 	err := store.Save(path)
 
-	// then: Header(7) + String("session"=7,"abc"=3,+TTL: 1+4+7+4+3+1+8=28) + EOF(1) = 36
+	// then: Header(7) + String("session"=7,"abc"=3,+TTL: 1+4+7+4+3+1+8=28) + EOF(1) + Checksum(4) = 40
 	if err != nil {
 		t.Fatalf("에러 발생: %v", err)
 	}
 	data, _ := os.ReadFile(path)
-	if len(data) != 36 {
-		t.Fatalf("파일 크기: %d, expected: 36", len(data))
+	if len(data) != 40 {
+		t.Fatalf("파일 크기: %d, expected: 40", len(data))
 	}
 	// HasExpiry 마커 확인: type(1)+keylen(4)+key(7)+vallen(4)+val(3) = offset 7+19 = 26
 	if data[26] != 0x01 {
 		t.Fatalf("HasExpiry: 0x%02x, expected: 0x01", data[26])
+	}
+}
+
+// ========== Load 테스트 ==========
+
+func TestLoad_NonExistentFile(t *testing.T) {
+	// given: 존재하지 않는 파일 경로
+	store := New()
+	path := filepath.Join(t.TempDir(), "nofile.rdb")
+
+	// when
+	err := store.Load(path)
+
+	// then: 에러 없이 정상 반환
+	if err != nil {
+		t.Fatalf("존재하지 않는 파일에 에러 발생: %v", err)
+	}
+}
+
+func TestLoad_StringEntries(t *testing.T) {
+	// given: Save로 String 엔트리 저장
+	store := New()
+	store.Set("name", "gopher")
+	store.Set("lang", "go")
+	path := filepath.Join(t.TempDir(), "string.rdb")
+	store.Save(path)
+
+	// when: 새 Store에 Load
+	loaded := New()
+	err := loaded.Load(path)
+
+	// then
+	if err != nil {
+		t.Fatalf("에러 발생: %v", err)
+	}
+	v1, ok1 := loaded.Get("name")
+	if !ok1 || v1 != "gopher" {
+		t.Fatalf("name: %s, exist: %v", v1, ok1)
+	}
+	v2, ok2 := loaded.Get("lang")
+	if !ok2 || v2 != "go" {
+		t.Fatalf("lang: %s, exist: %v", v2, ok2)
+	}
+}
+
+func TestLoad_ListEntries(t *testing.T) {
+	// given: Save로 List 엔트리 저장
+	store := New()
+	store.RPush("fruits", "apple", "banana", "cherry")
+	path := filepath.Join(t.TempDir(), "list.rdb")
+	store.Save(path)
+
+	// when: 새 Store에 Load
+	loaded := New()
+	err := loaded.Load(path)
+
+	// then
+	if err != nil {
+		t.Fatalf("에러 발생: %v", err)
+	}
+	result, lErr := loaded.LRange("fruits", 0, -1)
+	if lErr != nil {
+		t.Fatalf("LRange 에러: %v", lErr)
+	}
+	expected := []string{"apple", "banana", "cherry"}
+	if len(result) != len(expected) {
+		t.Fatalf("리스트 길이: %d, expected: %d", len(result), len(expected))
+	}
+	for i, v := range result {
+		if v != expected[i] {
+			t.Fatalf("result[%d]: %s, expected: %s", i, v, expected[i])
+		}
+	}
+}
+
+func TestLoad_WithTTL(t *testing.T) {
+	// given: TTL이 설정된 키를 Save
+	store := New()
+	store.Set("session", "abc")
+	store.Expire("session", 3600) // 1시간 후 만료
+	path := filepath.Join(t.TempDir(), "ttl.rdb")
+	store.Save(path)
+
+	// when: 새 Store에 Load
+	loaded := New()
+	err := loaded.Load(path)
+
+	// then: 키가 존재하고 TTL이 복원됨
+	if err != nil {
+		t.Fatalf("에러 발생: %v", err)
+	}
+	v, ok := loaded.Get("session")
+	if !ok || v != "abc" {
+		t.Fatalf("session: %s, exist: %v", v, ok)
+	}
+	ttl := loaded.TTL("session")
+	if ttl <= 0 {
+		t.Fatalf("TTL: %d, 양수여야 합니다", ttl)
+	}
+}
+
+func TestLoad_SkipExpiredKeys(t *testing.T) {
+	// given: 만료된 키 + 유효한 키를 Save
+	store := New()
+	store.Set("expired", "old")
+	store.Set("valid", "new")
+	store.Expire("expired", 1)
+	time.Sleep(2 * time.Second)
+
+	path := filepath.Join(t.TempDir(), "expired.rdb")
+	store.Save(path)
+
+	// when: 새 Store에 Load
+	loaded := New()
+	err := loaded.Load(path)
+
+	// then: 만료된 키는 로드되지 않음
+	if err != nil {
+		t.Fatalf("에러 발생: %v", err)
+	}
+	_, ok := loaded.Get("expired")
+	if ok {
+		t.Fatal("만료된 키가 로드되면 안 됩니다")
+	}
+	v, ok := loaded.Get("valid")
+	if !ok || v != "new" {
+		t.Fatalf("valid: %s, exist: %v", v, ok)
+	}
+}
+
+func TestLoad_CorruptedChecksum(t *testing.T) {
+	// given: Save 후 파일 변조
+	store := New()
+	store.Set("key", "value")
+	path := filepath.Join(t.TempDir(), "corrupted.rdb")
+	store.Save(path)
+
+	data, _ := os.ReadFile(path)
+	data[10] ^= 0xFF
+	os.WriteFile(path, data, 0644)
+
+	// when: 변조된 파일 Load
+	loaded := New()
+	err := loaded.Load(path)
+
+	// then: 체크섬 에러
+	if err == nil {
+		t.Fatal("변조된 파일에 대해 에러가 발생해야 합니다")
+	}
+}
+
+func TestLoad_EmptyStore(t *testing.T) {
+	// given: 빈 Store를 Save
+	store := New()
+	path := filepath.Join(t.TempDir(), "empty.rdb")
+	store.Save(path)
+
+	// when: 새 Store에 Load
+	loaded := New()
+	err := loaded.Load(path)
+
+	// then: 에러 없이 빈 상태
+	if err != nil {
+		t.Fatalf("에러 발생: %v", err)
+	}
+	_, ok := loaded.Get("anything")
+	if ok {
+		t.Fatal("빈 Store에서 키가 존재하면 안 됩니다")
 	}
 }
