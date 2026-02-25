@@ -38,6 +38,12 @@ func (s *Server) Start() error {
 	defer s.listener.Close() // 서버 종료 전 리소스 정리
 	log.Printf("현재 서버가 [%s] 에서 리스닝중입니다.", s.addr)
 
+	if err := s.store.Load("dump.rdb"); err != nil {
+		log.Printf("RDB 로딩 실패: %v", err)
+	} else {
+		log.Println("RDB 파일 로딩 완료")
+	}
+
 	s.store.StartExpiry()
 	defer s.store.StopExpiry()
 
