@@ -5,7 +5,9 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"hash/crc32"
 	"io"
+	"os"
 	"time"
 )
 
@@ -37,9 +39,12 @@ func (d *Decoder) ReadHeader() error {
 	}
 
 	version, err := d.readBytes(1)
+	if err != nil {
+		return err
+	}
 
 	if version[0] != Version {
-		return err
+		return fmt.Errorf("버전이 불일치합니다.")
 	}
 	return nil
 }
@@ -95,6 +100,30 @@ func (d *Decoder) ReadEntry() (*DecodedEntry, error) {
 	entry.ExpireAt = expireAt
 
 	return entry, nil
+}
+
+func VerifyChecksum(path string) error {
+	file, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+
+	if len(file) < ChecksumSize {
+		return fmt.Errorf("파일의 크기가 Checksum 사이즈보다 작습니다.")
+	}
+
+	content := file[:len(file)-ChecksumSize]
+	stored := binary.BigEndian.Uint32(file[len(file)-ChecksumSize:])
+	computed := crc32.ChecksumIEEE(content)
+
+	if stored != computed {
+		return fmt.Errorf(
+			"Checksum이 일치하지 않습니다: stored=0x%08x, computed=0x%08x",
+			stored,
+			computed,
+		)
+	}
+	return nil
 }
 
 // ========== 헬퍼 메서드 ==========
