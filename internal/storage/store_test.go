@@ -923,3 +923,65 @@ func TestLoad_EmptyStore(t *testing.T) {
 		t.Fatal("빈 Store에서 키가 존재하면 안 됩니다")
 	}
 }
+
+func BenchmarkSet(b *testing.B) {
+	// given: store 초기화 && 할당 통계 활성화 && store 생성 등 셋업 시간은 제외
+	store := New()
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	// when && then
+	for i := 0; i < b.N; i++ {
+		store.Set(fmt.Sprintf("key:%d", i), "value")
+	}
+}
+
+func BenchmarkGet(b *testing.B) {
+	// given
+	store := New()
+	store.Set("fruits", "apple")
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	// when && then
+	for i := 0; i < b.N; i++ {
+		store.Get("fruits")
+	}
+}
+
+func BenchmarkLPush(b *testing.B) {
+	store := New()
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		store.LPush("list", fmt.Sprintf("val:%d", i))
+	}
+}
+
+func BenchmarkRPush(b *testing.B) {
+	store := New()
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		store.RPush("list", fmt.Sprintf("val:%d", i))
+	}
+}
+
+func BenchmarkConcurrentGet(b *testing.B) {
+	store := New()
+	for i := 0; i < 1000; i++ {
+		store.Set(fmt.Sprintf("key:%d", i), "value")
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	b.RunParallel(func(pb *testing.PB) {
+		i := 0
+		for pb.Next() {
+			store.Get(fmt.Sprintf("key:%d", i%1000))
+			i++
+		}
+	})
+}
