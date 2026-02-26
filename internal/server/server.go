@@ -6,6 +6,8 @@ import (
 	"inmemory-db/internal/storage"
 	"log"
 	"net"
+	"net/http"
+	_ "net/http/pprof"
 	"strconv"
 	"strings"
 )
@@ -43,6 +45,12 @@ func (s *Server) Start() error {
 	} else {
 		log.Println("RDB 파일 로딩 완료")
 	}
+
+	// pprof 디버그 서버 시작
+	go func() {
+		log.Println("pprof 서버 시작: http://localhost:6060/debug/pprof/")
+		http.ListenAndServe(":6060", nil)
+	}()
 
 	s.store.StartExpiry()
 	defer s.store.StopExpiry()
